@@ -1,0 +1,355 @@
+---
+title: "STAT221 HW1"
+author: "Jonathan Luu"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment = NA)
+set.seed(1)
+```
+
+# Question 1
+Consider the one of the oldest algorithms, the Babylon algorithm for finding square-root of a target number S. Analyze how fast this algorithm converges to $\sqrt{S}$.
+
+```{r}
+## Runs the babylon algorithm to compute the square root of S
+# S: target number
+# X: initial guess
+# error: tolerance value before termination
+babylon <- function(S, X, error=0.0001){
+  # count number of iterations
+  iter <- 1
+  
+  repeat{
+    # Calculate error and check if larger than tolerance
+    emp.error <- babylon_error(S, X)
+    if (emp.error > error){
+      X <- 0.5*(X+S/X)
+      iter <- iter + 1
+    }else{
+      return(list(sqrt=abs(X), iterations=iter))
+    }
+  }
+}
+
+## Function to calculate the error
+babylon_error <- function(S, X){
+  abs((S-X^2)/(2*X))
+}
+```
+
+\newpage
+```{r}
+# Run for a few realizations
+babylon(S=20, X=200)
+babylon(S=100, X=900000)
+```
+
+This algorithm depends on two separate inputs: the error/tolerance amount and the initial guess. The further the initial guess is from the target number and the higher the error/tolerance amount, the longer it will take for the algorithm to converge to the square root. 
+
+However, this algorithm converges to $\sqrt{S}$ very quickly even if the initial guess is far away. It "halves" the current guess for the next iterative guess similar to binary search, which has time complexity O(log(n)). However, it is difficult to place a big O notation on this algorithm as the time depends on the input number and the tolerance. Therefore, an alternative approach is to look at the error convergence of the algorithm.
+
+Since the algorithm is an application of Newton's method, using taylor's expansion we can see that the error of the n+1 term is:
+
+$$
+\begin{aligned}
+e_{n+1} &= e_n - \frac{f(x_n)}{f'(x_n)}\\
+&= e_n - \frac{\left[f(x) - f'(x_n)(x-x_n) - \frac{1}{2}f''(e)(x_n-x)^2 + o_p(3)  \right]}{f'(x_n)}\\
+&= e_n - \frac{0-f'(x_n)e_n + \frac{1}{2}f''(e)e_n^2}{f'(x_n)}\\
+&=\frac{f''(e)e_n^2}{2f'(x_n)}
+\end{aligned}
+$$
+
+which converges quadratically with the according error constant.
+
+
+
+\newpage
+# Question 2
+Let v be a vector and suppose that its Euclidean length > 0. Write down an orthogonal matrix A so that $Av = (||v||,0,...,0)^T$, i.e., only the first coordinate has a non-zero element.
+
+Since A is an orthogonal matrix, the three constraints that need to be met for this problem are
+$$
+\begin{aligned}
+&1. \; AA^T=I\\
+&2. \; A^TA=I\\
+&3. \; Av=(||v||,0,...,0)^T
+\end{aligned}
+$$
+
+Suppose A is a 2x2 matrix with 
+
+$$
+A = \big(\begin{smallmatrix}
+  a & b\\
+  c & d
+\end{smallmatrix}\big) \qquad
+A^T = \big(\begin{smallmatrix}
+  a & c\\
+  b & d
+\end{smallmatrix}\big)
+$$
+
+Therefore, the restraints can be rewritten as
+
+$$
+\begin{aligned}
+&1. \; \left[ \begin{matrix}
+a^2 + b^2 & ac + bd\\
+&c^2+d^2
+\end{matrix} \right] = 
+\left[\begin{matrix}
+1 & 0 \\
+0 & 1
+\end{matrix}\right]\\
+&2.\; \left[ \begin{matrix}
+a^2 + c^2 & ab + cd\\
+&b^2+d^2
+\end{matrix} \right] = 
+\left[\begin{matrix}
+1 & 0 \\
+0 & 1
+\end{matrix}\right]\\
+&3.\; \left[\begin{matrix} 
+av_1 + bv_2\\
+cv_1 + dv_2
+\end{matrix}\right] = 
+\left[\begin{matrix} 
+||v||\\
+0
+\end{matrix}\right]
+\end{aligned}
+$$
+
+By solving this system of equations using a nonlinear solver in R such as nleqslv you can get the matrix A that meets these constraints.
+
+
+
+\newpage
+# Question 3
+Use Monte Carlo to demonstrate the concept of confidence intervals by repeating the following many (say 1000) times:
+
+a) simulate 10 iid observations from N($\theta$, 1) with $\theta$=1, denoted as (x1,...,x10)
+b) compute the mean and sd
+c) construct two intervals
+
+Discuss the following issues using your simulation results: (i) verify that both intervals are 95% confidence intervals; (ii) verify that on average I2 is longer than I1 and explain why; (iii) discuss when one can use I1 and when should use I2.
+
+```{r}
+# number of simulations
+sim.count <- 1000
+results <- data.frame(matrix(ncol=4, nrow=sim.count))
+
+for (i in 1:sim.count){
+  # generate 10 N(1,1) RV
+  obs <- rnorm(10, mean=1, sd=1)
+  obs.mean <- mean(obs)
+  obs.sd <- sd(obs)
+  
+  # calculate the two CIs
+  I1 <- c(obs.mean - 1.96/sqrt(10), obs.mean + 1.96/sqrt(10))
+  I2 <- c(obs.mean - qt(0.975, 9)*obs.sd/sqrt(10), obs.mean + qt(0.975,9)*obs.sd/sqrt(10))
+  
+  results[i,]<-c(I1,I2)
+}
+```
+
+```{r}
+# Verifying both are 95% CI
+I1.proportions <- table(results[,2] > 1 & results[,1] < 1)
+I1.proportions[2]/sim.count
+
+I2.proportions <- table(results[,4] > 1 & results[,3] < 1)
+I2.proportions[2]/sim.count
+```
+
+The proportion of the 1000 confidence intervals created that contained the true parameter $\theta=1$ was 95.3% for I1 and 95.7% for I2.
+
+```{r}
+# Verify that the average I2 is longer than I1
+I1.lengths <- results[,2]-results[,1]
+mean(I1.lengths)
+
+I2.lengths <- results[,4]-results[,3]
+mean(I2.lengths)
+```
+
+On average, the I1 length is 1.24. This length does not vary at all, since we are adding a constant value (1.96/sqrt(10)) to the mean. On average, the I2 length is 1.41. This length does vary because it depends on the sample standard deviation. 
+
+Since I2 is utilizing the T distribution while I1 is utilizing the Z distribution, it is expected that I2 is on average longer than I1. This is because the t-distribution has heavier tails compared to the Z distribution and therefore has a larger margin of error, especially for smaller sample sizes. Furthermore, since we are estimating the variance for I2, we are losing efficiency and therefore increasing the variance/confidence interval width. However, as the sample size gets larger and we get more degrees of freedom for the t-distribution, it approaches a normal distribution and the variance terms should be relatively similar.
+
+Typically, I1 is not used in practice very often as we do not know the true standard deviation of our distribution of interest. We typically have to estimate this standard deviation using our sample and utilize this estimate to create our confidence intervals, which is where the T-distribution can be used. Therefore, if we only use the Z-distribution (I1) if we know the true population variance; else, we use the T-distribution (I2).
+
+\newpage
+# Question 4
+Suppose 10 observations (4.10, 3.71, 2.45, 7.10, 2.25, 3.56, -2.59, 4.13, 4.32, 3.26) are iid from Cauchy($\theta$). Suppose you know a priori that $\theta$ can take one of the values of (-1,0,1,2,...,10) with equal probability. Compute the posterior distribution of $\theta$ on these 12 values and interpret your results.
+
+```{r}
+# Parameters
+q4<-c(4.10, 3.71, 2.45, 7.10, 2.25, 3.56, -2.59, 4.13, 4.32, 3.26)
+prior <- rep(1/12,12)
+theta <- -1:10
+
+# Cauchy distribution
+density.func <- function(x, theta){
+  (1/pi)*(1/(1+(x-theta)^2))
+}
+
+# Calculate likelihood
+likelihood <- rep(0, length(theta))
+for (i in 1:length(theta)){
+  likelihood[i]<-prod(density.func(q4, theta[i]))
+}
+
+# Apply Bayes
+result<-likelihood*prior/sum(likelihood*prior)
+
+# Store results and print
+posterior <- data.frame(matrix(as.numeric(format(round(result,4), nsmall=4)), ncol = 12))
+colnames(posterior) <- theta
+posterior
+```
+
+According to the posterior distribution, it is very likely that theta's true value is 4, with a posterior probability of 0.6935. There is also a decent chance that theta's true value is 3, with a posterior probability of 0.3011. However, all other potential values of theta have extremely low posterior probabilities and are unlikely to be the true theta.
+
+\newpage
+# Question 5
+For the above problem, assume that $\theta$ can take any value in $(-\infty, \infty)$. Assume that you have a prior distribution $\theta \sim N(0, 10^2)$, then write a gradient ascend algorithm to find the mode of the posterior distribution. Also try out the Newton-Raphson algorithm to find the mode.
+
+```{r}
+# Derivative function for gradient descent
+deriv.func <- function(x, theta){
+  sum(2*(x-theta)/((x-theta)^2+1)) - theta/100
+}
+
+## Runs the gradient descent algorithm
+# initial_theta: initial guess
+# x: observed values
+# tolerance: threshold for when to stop algorithm
+# LR: learning rate, or how much to increment on each step
+# max.iter: maximum number of iterations before termination
+grad.descent <- function(initial_theta, x, tolerance, LR, max.iter){
+  curr.iter <- 0
+  curr.deriv <- 1
+  curr.theta <- initial_theta
+  
+  while (curr.iter < max.iter && tolerance < abs(curr.deriv) ){
+    curr.deriv <- deriv.func(x, curr.theta)
+    step.size <- curr.deriv*LR
+    curr.theta <- curr.theta + step.size
+    curr.iter <- curr.iter + 1
+  }
+  
+  if (curr.iter == max.iter){
+    print(paste("Failed to converge in", max.iter, "steps"))
+    return(-1)
+  }
+  
+  return(curr.theta)
+}
+
+# Running the algorithm with an initial guess of -10
+grad.descent(-10, q4, 0.001, 0.1, 100)
+
+# Running the algorithm with an initial guess of 20
+grad.descent(20, q4, 0.001, 0.1, 100)
+```
+
+With the given prior distribution, the log likelihood's derivative is proportional to the function in deriv.func. Using this derivative as our function of interest for gradient descent, we calculate this derivative every step, multiply it by the learning rate to obtain our step size, and then increment our current theta by this step size until our tolerance level is reached. 
+
+Using this algorithm, the mode of the posterior distribution is estimated to be 3.646.
+
+```{r}
+second.deriv.func <- function(x, theta){
+  sum((4*(x-theta)^2)/((x-theta)^2+1)^2 - 2/((x-theta)^2+1) - 1/100)
+}
+
+## Runs the newton-raphson algorithm
+# initial_theta: initial guess
+# x: observed values
+# tolerance: threshold for when to stop algorithm
+# max.iter: maximum number of iterations before termination
+newton.raph <- function(initial_theta, x, tolerance, max.iter){
+  curr.iter <- 0
+  curr.theta <- initial_theta
+  diff <- 100
+  
+  while (curr.iter < max.iter && tolerance < diff ){
+    prev.theta <- curr.theta
+    curr.theta <- curr.theta - deriv.func(x, curr.theta) / second.deriv.func(x, curr.theta)
+    diff <- abs(curr.theta-prev.theta)
+    curr.iter <- curr.iter + 1
+  }
+  
+  if (curr.iter == max.iter){
+    print(paste("Failed to converge in", max.iter, "steps"))
+    return(-1)
+  }
+  
+  return(curr.theta)
+}
+
+newton.raph(-10, q4, 0.001, 100)
+newton.raph(20, q4, 0.001, 200)
+```
+For newton-rapshon, rather than using a learning rate and a step-size, it uses a ratio of the first and second derivatives to increment its guess. Using the same parameters as gradient-descent, the algorithm gives the exact same result of 3.646.
+
+
+\newpage
+# Question 6
+Continue with Problem 4. Now you want to find the normalizing constant, the posterior mean, and the posterior variance. Consider and implement the following two algorithms:
+
+a) Discretization method: discretize a plausible interval (a,b) for $\theta$ (such as the interval (-10, 15)), and cut the interval into N pieces of equal size (e.g., N=10,000), and try to approximate the three quantities of interest.
+
+b) Try an importance sampling algorithm. For example, you may simulate $\theta$ from the prior, and then try to approximate the quantities of interest. Compare the results you obtained with that in (a).
+
+```{r}
+# Discretization method
+# Interval of choice: (-10,15), assuming prior is N(0,10)
+N=10000
+interval_theta<-seq(-10,15,length=N)
+prior<-dnorm(interval_theta,0,10)
+
+# Calculate likelihood
+likelihood <- sapply(interval_theta, function(x){prod(density.func(q4,x))})
+
+# Apply Bayes
+result<-likelihood*prior/sum(likelihood*prior)
+
+# Posterior mean, variance, and normalizing constant
+print(paste("Normalizing constant:", sum(likelihood*prior)))
+print(paste("Posterior mean:", sum(result*interval_theta)))
+print(paste("Posterior variance:", sum(interval_theta^2 * result) - sum(result*interval_theta)^2))
+
+plot(interval_theta,result)
+```
+
+```{r}
+# Importance sampling
+# Sample from N(0, 10) distribution
+sample <- rnorm(N,0,10)
+fx <- dnorm(sample, 0, 10)
+gx <- sapply(sample, function(x){prod(density.func(q4,x))})
+weight <- gx/fx
+
+m.sum <- sum(sample*weight)
+weight.sum <- sum(weight)
+p.mean <- m.sum/weight.sum
+v.sum <- sum(sample^2 * weight)
+p.var <- v.sum/weight.sum - p.mean^2
+
+# Posterior mean, variance, and normalizing constant
+print(paste("Normalizing constant:", weight.sum))
+print(paste("Posterior mean:", p.mean))
+print(paste("Posterior variance:", p.var))
+```
+
+The normalizing constants are quite different between the two methods. However, the posterior means are relatively similar with the importance sampling method being slightly closer to 3.64 (the result from the previous methods) than the discretization method. The importance sampling method also has a slightly lower posterior variance compared to discretization. 
+
+
+
+
+
+
+

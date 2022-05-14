@@ -1,0 +1,352 @@
+---
+title: "STAT221 Homework 2"
+author: "Jonathan Luu"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width = 12, fig.height = 8, comment=NA)
+set.seed(123)
+library(ggplot2)
+library(invgamma)
+```
+
+# Question 1
+
+Let $\pi(x) \propto e^{-\frac{x^2}{2}}$ be the standard Normal density. Implement the random-walk Metropolis algorithm to sample from $\pi$, using $N(\cdot, \sigma^2)$ as the proposal distribution. Plot the autocorrelation curve for the corresponding chain. Argue why $\sigma=2.38$ seems to be the optimal choice among the class of proposal functions you tested. 
+
+```{r, cache=TRUE}
+# Potential sigma values
+sigma.values <- c(0.25, 1, 2.38, 3, 4)
+
+metropolis.rw <- function(sigma){
+  # Simulation parameters
+  N <- 10000
+  x <- numeric(N)
+  
+  # Run the simulation
+  for(i in 2:N) {
+    # Generate a value from the proposal distribution
+    e <- rnorm(1, sd=sigma)
+    
+    # Generate y = x + e
+    y <- x[i-1] + e
+    
+    # Sample from the standard Normal density
+    a.ratio <- min(dnorm(y, log = TRUE) - dnorm(x[i-1], log = TRUE), 0)
+    
+    # Simulate a U(0,1) rv to decide acceptance
+    u <- runif(1)
+    if(log(u) <= a.ratio)
+      x[i] <- y
+    else
+      x[i] <- x[i-1]
+  }
+  
+  # Plot histogram
+  hist(x, main=paste0("Histogram, sigma=",sigma))
+  # Plot autocorrelation curve
+  acf.x<-acf(x, plot=FALSE, lag.max = 80)
+  plot(acf.x, main=paste0("Autocorrelation curve, sigma=", sigma))
+}
+
+invisible(lapply(sigma.values, metropolis.rw))
+```
+
+\newpage
+Out of the 5 $\sigma$ values that I tested, $\sigma=2.38$ seems to be the optimal choice looking at the autocorrelation function. For $\sigma=0.25, 1$, the ACF is relatively large for short lags, and it also takes a while for it to die out. For $\sigma=3,4$, the ACF decays a lot faster; however, it seems to oscillate out of the dotted boundary every once in a while which is not ideal. For $\sigma=2.38$, the ACF decays equally as fast compared to $\sigma=3,4$, but the ACF stays within the dotted boundary. 
+
+\newpage
+# Question 2
+Consider the following hidden Markov model (HMM). Let $Z=(z_0,z_1,...z_n)$ be a binary sequence of homogenous Markov chain with $z_0=0$, governed by the transition matrix T=$\left(\begin{array}{rr}\tau_{00} & \tau_{01} \\\tau_{10} & \tau_{11}\end{array}\right)$, where $\tau_{ij} = P(Z_{t+1}=j | Z_t=i)$ is the transition probability. We observe that $y_1...y_n$, which follows the probabilistic law $f(y_k|z_k=j)=N(0,\sigma^2)$ (with $j$=0 or 1), but do not observe $(z_1,...z_n)$ (note that $z_0=0$ is observed). This model is a special HMM, corresponding to a simplified "stochastic volatility" model with only two states of volatilities.
+
+## Part 2a (Maximization)
+Suppose we observe $Y=(y_1,...y_n)$, and we know both the transition matrix T and the variance parameters $\sigma_0, \sigma_1$. Write a program to take these known quantities as input and output the most probable path $\hat{Z}^{opt}=(z_0,z_1^*,...,z_n^*)$ (i.e., the one that maximizes the posterior probability $P(Z|Y) \propto P(Y|Z)P(Z)$).
+
+```{r}
+# Input
+## y: observed sequence
+## transition: transition matrix
+## sigma0, sigma1: variance parameters
+maximize.hmm <- function(y, transition, sigma0, sigma1){
+  # All combinations of 0,1s of length.y with z0=0
+  length.y <- length(y)
+  comb.z<-expand.grid(replicate(length.y+1, 0:1, simplify = FALSE)) 
+  comb.z<-comb.z[comb.z$Var1==0,]
+  length.comb.z <- nrow(comb.z)
+  
+  # Maximize the posterior probability
+  post.probs <- numeric(length.comb.z)
+  for (i in 1:length.comb.z){
+    curr.z<-comb.z[i,]
+    
+    observed.prob<-sapply(1:length.y, function(j){
+      # Get f(y|z)
+      f.yz<-ifelse(curr.z[j+1]==0, dnorm(y[j], sd=sigma0), dnorm(y[j], sd=sigma1))
+      
+      # Select transitional probability
+      if(curr.z[j]==0)
+        tp<-ifelse(curr.z[j+1]==0, transition[1], transition[3])
+      else if(curr.z[j]==1)
+        tp<-ifelse(curr.z[j+1]==0, transition[2], transition[4])
+      
+      return(f.yz*tp)
+    })
+    
+    # Store posterior probability
+    post.probs[i]<-prod(observed.prob)
+  }
+  
+  # Return optimal z
+  max.index=which.max(post.probs)
+  list(z.star=comb.z[max.index,], post.probs=post.probs, comb.z=comb.z)
+}
+```
+
+## Part 2b (Testing out)
+Apply your program to data $Y = (-0.5, 0.2, -0.3, 0.4, 1.5, 2.1, 2.8, -2.5, -1.8, 1.1)$, with $\tau_{00}=0.95, \tau_{11}=0.7; \sigma_0=0.5, \sigma_1=2$.
+
+```{r, cache=TRUE}
+# Parameters for question 2b
+y.2b <- c(-0.5,0.2,-0.3,0.4,1.5,2.1,2.8,-2.5,-1.8,1.1)
+tm.2b <- matrix(c(0.95, 0.3, 0.05, 0.7), ncol = 2)
+s0.2b <- 0.5
+s1.2b <- 2
+
+# Run maximization
+results<-maximize.hmm(y.2b, tm.2b, s0.2b, s1.2b)
+results$z.star
+```
+
+\newpage
+## Part 2c (Sampling)
+Write a program to sample Z from the posterior distribution P(Z|Y). Also apply the algorithm to data case specified in (b), drawing $M=1000$ independent samples $Z^{(1)},...,Z^{(1000)}$, from P(Z|Y). Compare the approximated posterior mean, $\tilde Z = \frac{1}{1000}(Z^{(1)}+...Z^{(1000)})$ with $\hat{Z}^{opt}$ obtained in (a).
+
+```{r}
+# Normalize the probabilities from P(Z|Y)
+normalized.probs <- results$post.probs/sum(results$post.probs)
+z.seq <- results$comb.z
+
+# Randomly sample from the posterior
+numSamples <- 1000
+post.sample<-z.seq[sample(nrow(z.seq),size=numSamples,replace=TRUE, prob = normalized.probs),]
+
+# Get mean of the sample
+mean.sample<-apply(post.sample, 2, mean)
+mean.sample
+```
+
+Since my $\hat{Z}^{opt}=\{0,0,0,0,0,1,1,1,1,1,1\}$, this approximated posterior mean seems to match up since my last 6 values have a mean very close to 1, while my first 5 values are much closer to 0.
+
+\newpage
+## Part 2d (Posterior mean)
+Compute the exact posterior mean $\hat{Z} \equiv E(Z|Y)$, using dynamic programming, and compare $\hat{Z}$ with $\tilde Z$ obtained in (c).
+
+```{r, cache=TRUE}
+## Recursively calculate the posterior probabilities to utilize previous results
+# prevZ: Previous value of Z
+# currZ: Current value of Z
+# currIndex: Current depth of tree, or index of y
+# finalIndex: Stopping depth of tree, or final index of y
+# valList: current sequence of numbers to be passed along
+# currProb: current calculated probability to be passed along
+dynamic.post <- function(y, transition, sigma0, sigma1){
+  recurse <- function(prevZ, currZ, currIndex, finalIndex, valList, currProb){
+    if (currIndex != 0){
+      # Calculate f(Y|Z)
+      f.yz <- ifelse(currZ==0, dnorm(y[currIndex], sd=sigma0), dnorm(y[currIndex], sd=sigma1) )
+      
+      # Selection transitional probability
+      if(prevZ==0)
+        tp<-ifelse(currZ==0, transition[1], transition[3])
+      else if(prevZ==1)
+        tp<-ifelse(currZ==0, transition[2], transition[4])
+      
+      currProb <- currProb*f.yz*tp
+    }
+
+    # Base condition
+    if (currIndex == finalIndex)
+      return(currProb*valList)
+    else{
+      post.means.1<-recurse(currZ, 0, currIndex+1, finalIndex, c(valList, 0), currProb)  
+      post.means.2<-recurse(currZ, 1, currIndex+1, finalIndex, c(valList, 1), currProb)  
+    }
+    
+    return(post.means.1+post.means.2)
+  }
+  
+  recurse(0,0,0,length(y),numeric(),1)
+}
+
+dynamic.post(y.2b, tm.2b, s0.2b, s1.2b)/sum(results$post.probs)
+```
+
+Comparing the exact posterior mean against the estimated posterior mean, the values seem very close with a maximum difference of around 0.01 between the two vectors. Also, comparing the computation time of method 2a, which exhaustively searched the 2^10 possibilities for the full posterior distribution against the dynamic method of re-using previously calculated values, the dynamic programming method took 0.024 seconds to compute while 2a took 2.907 seconds to compute.
+
+\newpage
+# Question 3
+Continue with the above problem.
+
+## Part 3a
+Under the same setting as in Problem 2, implement a Gibbs sampling algorithm to sample $Z$ from the posterior distribution $P(Z|Y) \propto P(Y|Z)P(Z)$. More precisely, we can consider all the conditional distribution
+
+$$
+p(z_j | Z_{[-j]}, Y) \propto p(z_j | Z_{[-j]})p(y_j | z_j) \propto p(z_j | z_{j-1})p(z_{j+1}|z_j)p(y_j|z_j)
+$$
+
+```{r}
+gibbSample <- function(y, transition, sigma0, sigma1){
+  n.rep<-100
+  Z <- rep(0,length(y)+1)
+  
+  for (rep in 1:n.rep){
+    for (i in 2:(length(y)+1)){
+      prevZ <- Z[(i-2) %% (length(y)+1) + 1]
+      currZ <- Z[i]
+      nextZ <- Z[i %% (length(y)+1) + 1]
+      
+      # Get first term
+      if (prevZ==0){
+        zj0.term1<-transition[1]
+        zj1.term1<-transition[3] 
+      }
+      else{
+        zj0.term1<-transition[2]
+        zj1.term1<-transition[4]
+      }
+      
+      # Get second term
+      if (i==length(y)+1){
+        zj0.term2<-1
+        zj1.term2<-1
+      }
+      else if (nextZ==0){
+        zj0.term2<-transition[1]
+        zj1.term2<-transition[2]
+      }
+      else{
+        zj0.term2<-transition[3]
+        zj1.term2<-transition[4]
+      }
+
+      # Get third term
+      zj0.term3<-dnorm(y[i-1], sd=sigma0)
+      zj1.term3<-dnorm(y[i-1], sd=sigma1)
+      
+      # Combine probabilities and normalize
+      zj0.prob <- zj0.term1*zj0.term2*zj0.term3
+      zj1.prob <- zj1.term1*zj1.term2*zj1.term3
+      total.prob <- zj0.prob + zj1.prob
+      zj1.prob.norm <- zj1.prob/total.prob
+      
+      # Replace current z_j with new one
+      Z[i]<-rbinom(1,1,zj1.prob.norm)
+    }
+  }
+  
+  return(Z)
+}
+```
+
+
+## Part 3b
+Apply the algorithm to the data example in Problem 2(b), and compare the result with those obtained in 2(c) and 2(d).
+
+```{r, cache=TRUE}
+sample.3b <- data.frame(matrix(0L, nrow = 1000, ncol=11))
+
+for (i in 1:1000){
+  sample.3b[i,] <- gibbSample(y.2b, tm.2b, s0.2b, s1.2b)
+}
+
+apply(sample.3b, 2, mean)
+```
+
+Compared to 2c and 2d, the results are once again very similar, with the first 5 values having a mean closer to 0, and the latter results having a mean closer to 1 which agrees with the maximized sequence found in 2b. 
+
+## Part 3c
+Now assume that the parameters $T, \sigma^2_0, \sigma^2_1$ are unknown. Let us give an inverse-$\chi^2$ prior distribution to the $\sigma^2_j$'s, i.e., $\sigma^2_j \sim \chi^{-2}(v_0,s_0^2)$, meaning that $\frac{v_0s_0^2}{\sigma_j^2} \sim \chi^2(v_0)$, with $v_0=2,s_0^2=1$, and the Beta(0.5,0.5) prior to the transition probabilities. Write down the joint posterior distribution of $(Z,T,\sigma_0^2, \sigma_1^2)$ up to a normalizing constant.
+
+The posterior distribution of $(Z,T,\sigma_0^2, \sigma_1^2 | Y)$ is proportional to the prior times the likelihood:
+
+$$
+\begin{aligned}
+f(Z,t,\sigma_0^2, \sigma_1^2 | Y) &\propto f(Y|Z,T, \sigma_0^2 \sigma_1^2)  f(Z|T, \sigma_0^2 \sigma_1^2)  f(T, \sigma_0^2 \sigma_1^2)\\
+&=f(Y|Z,\sigma_0^2, \sigma_1^2)f(Z|T)f(T)f(\sigma_0^2)f(\sigma_1^2)\\
+&=\prod_{i=1}^n \frac{1}{\sigma_{Z_i}}exp\left(-\frac{Y_i^2}{2\sigma_{Z_i}^2} \right) \prod_{i=0}^n\tau_{Z_i, Z_{i+1}} \left(\frac{\tau_{00}^{-0.5}(1-\tau_{00})^{-0.5}}{B(0.5,0.5)} \right)  \left(\frac{\tau_{11}^{-0.5}(1-\tau_{11})^{-0.5}}{B(0.5,0.5)} \right) \left({\sigma_0^{-4}}e^{-1/\sigma^2_0} \right) \left({\sigma_1^{-4}}e^{-1/\sigma^2_1} \right)\\
+&\propto \prod_{i=1}^n \frac{1}{\sigma_{Z_i}}exp\left(-\frac{Y_i^2}{2\sigma_{Z_i}^2} \right) \prod_{i=0}^n\tau_{Z_i, Z_{i+1}} \left({\tau_{00}^{-0.5}(1-\tau_{00})^{-0.5}} \right)  \left({\tau_{11}^{-0.5}(1-\tau_{11})^{-0.5}} \right) \left({\sigma_0^{-4}}e^{-1/\sigma^2_0} \right) \left({\sigma_1^{-4}}e^{-1/\sigma^2_1} \right)
+\end{aligned}
+$$
+
+## Part 3d
+Implement a Gibbs sampling algorithm to sample from this posterior distribution.
+
+```{r}
+gibbSample.v2 <- function(y, transition, sigma0, sigma1){
+  n.rep<-100
+  Z <- rep(0,length(y))
+  
+  for (rep in 1:n.rep){
+    for (i in 1:length(y)){
+      term1.z0 <- term1.z1 <- term2.z0 <- term2.z1 <- 1
+      temp.z0 <- temp.z1 <- c(0,Z)
+      
+      temp.z0[i+1] <- 0
+      temp.z1[i+1] <- 1
+
+      for (j in 1:length(y)){
+          sigma.z0 <- ifelse(temp.z0[j+1]==0, sigma0, sigma1)
+          sigma.z1 <- ifelse(temp.z1[j+1]==0, sigma0, sigma1)
+          term1.z0 <- term1.z0*(1/sigma.z0)*exp( (-(y[j])^2) / (2*sigma.z0^2))
+          term1.z1 <- term1.z1*(1/sigma.z1)*exp( (-(y[j])^2) / (2*sigma.z1^2))
+          
+          tau.z0 <- transition[temp.z0[j]+1, temp.z0[j+1]+1][[1]]
+          tau.z1 <- transition[temp.z1[j]+1, temp.z1[j+1]+1][[1]]
+
+          term2.z0 <- term2.z0*tau.z0
+          term2.z1 <- term2.z1*tau.z1
+      }
+      
+      term3 <- (transition[1,1]^(-0.5)) * (1-transition[1,1])^(-0.5)
+      term4 <- (transition[2,2]^(-0.5)) * (1-transition[2,2])^(-0.5)
+      term5 <- (sigma0^(-4) * exp(-1/(sigma0^2) ))
+      term6 <- (sigma1^(-4) * exp(-1/(sigma1^2) ))
+    
+      z0.prob <- term1.z0*term2.z0*term3*term4*term5*term6
+      z1.prob <- term1.z1*term2.z1*term3*term4*term5*term6
+      norm.const <- z0.prob+z1.prob
+      
+      Z[i] <- rbinom(1,1,z1.prob/norm.const)
+    }
+  }
+
+  return(c(0,Z))
+}
+```
+
+
+## Part 3e
+Try out your algorithm on the very simple data set in 2(b), and plot the marginal posterior distributions of $\tau_{00}, \tau_{11}, \sigma_0^2, \sigma_1^2$.
+
+```{r, cache=TRUE}
+sample.3e <- data.frame(matrix(0L, nrow = 1000, ncol=11))
+
+for (i in 1:1000){
+  sample.3e[i,] <- gibbSample.v2(y.2b, tm.2b, s0.2b, s1.2b)
+}
+
+apply(sample.3e, 2, mean)
+```
+
+```{r, echo=FALSE}
+hist(rbeta(1000,0.5,.5), main="Posterior of tau00 and tau11")
+sigmaplot<-rinvchisq(1000, 2)
+sigmaplot<-sigmaplot[sigmaplot<20]
+hist(sigmaplot, main="Posterior of sigma0 and sigma1")
+```
+
+
+
+
+

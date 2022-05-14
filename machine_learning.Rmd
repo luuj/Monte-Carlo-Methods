@@ -1,0 +1,56 @@
+---
+title: "STAT221 HW4"
+author: "Jonathan Luu"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Question 1
+
+Note that the first image of each set is the original image from the training data set. The following 9 images are images after each epoch. 
+
+## Q1a
+
+Using the torch function, the number of parameters outputted is 652824. 
+
+![](p1.png)
+![](p2.png)
+![](p3.png)
+
+\newpage
+# Question 2
+
+```{r}
+# Set up parameters
+set.seed(173)
+n<-200
+p<-30
+X<-matrix(rnorm(n*p),n,p)
+beta<-matrix(rnorm(p, sd=0.5))
+eps<-rnorm(n)
+l0<-0.5
+y<-X%*%beta+eps
+t<-0.01
+
+# Calculate full subgradient with log-barrier penalty
+subgrad <- function(beta){
+  crossprod(X,(X%*%beta-y))/length(y) + (-t)*(beta/(beta^2-l0*abs(beta)))
+}
+
+# Gradient descent method
+grad.descent <- function(LR, initial_beta, max_iter){
+  beta <- initial_beta
+
+  for (i in 1:max_iter){
+    beta <- beta - subgrad(beta)*LR
+  }
+  return(beta)
+}
+
+est.beta<-grad.descent(LR=0.01, initial_beta=rep(0.1,p), max_iter=500)
+matrix(c(beta,est.beta), ncol=2)
+```
+
